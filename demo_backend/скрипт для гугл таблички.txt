@@ -1,0 +1,212 @@
+// Глобальная переменная для хранения токена
+
+
+
+
+// function registerAndGetToken() {
+//   // URL для регистрации пользователя
+//   var url = 'http://94.103.91.4:5000/auth/registration';
+//   // Данные для регистрации
+//   var data = {
+//     "username": username // Замените на нужное имя пользователя
+//   };
+
+//   // Настройки запроса для регистрации
+//   var options = {
+//     'method': 'post',
+//     'headers': {
+//       'accept': '*/*',
+//       'Content-Type': 'application/json'
+//     },
+//     'payload': JSON.stringify(data),
+//     'muteHttpExceptions': true  // Это позволит получить полный ответ при ошибках
+//   };
+
+//   try {
+//     // Отправка запроса на регистрацию
+//     var response = UrlFetchApp.fetch(url, options);
+
+//     // Получение кода ответа и тела ответа
+//     var responseCode = response.getResponseCode();
+//     var responseBody = response.getContentText();
+
+//     // Вывод результата
+//     Logger.log('Response Code: ' + responseCode);
+//     Logger.log('Response Body: ' + responseBody);
+
+//     // Если регистрация успешна (код ответа 201), извлечь токен
+//     if (responseCode === 201) {
+//       var responseJson = JSON.parse(responseBody);
+//       authToken = responseJson.token;  // Сохраняем токен в глобальной переменной
+//       Logger.log('Получен токен: ' + authToken);
+
+
+//     } else {
+//       Logger.log('Ошибка регистрации: ' + responseBody);
+//     }
+//   } catch (error) {
+//     Logger.log('Ошибка при отправке запроса: ' + error.message);
+//   }
+// }
+
+
+// Функция для авторизации с использованием токена
+function loginWithToken(username) {
+  var url = 'http://94.103.91.4:5000/auth/login';
+  var data = {
+    "username": username,
+  };
+  var options = {
+    'method': 'post',
+    'headers': {
+      'accept': '*/*',
+      'Content-Type': 'application/json',
+    },
+    'payload': JSON.stringify(data),
+    'muteHttpExceptions': true
+  };
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseCode = response.getResponseCode();
+    var responseBody = response.getContentText();
+    var responseJson = JSON.parse(responseBody);
+   var token = responseJson.token;
+    Logger.log('токен получен: ' + token);
+    return token;  // Возвращаем токен
+  } catch (error) {
+    Logger.log('Ошибка при отправке запроса: ' + error.message);
+    return null;  // Возвращаем null в случае ошибки
+  }
+}
+// Функция для использования токена и создания клиента
+function createClients(authToken) {
+  if (!authToken) {
+    Logger.log('Ошибка: Токен не найден');
+    return;
+  }
+  var url = 'http://94.103.91.4:5000/clients';
+  Logger.log('authToken перед созданием клиента: ' + authToken);
+  var clientData = {
+    "userIds": [1, 2, 3, 4, 5],
+    "firstName": ["test", "John", "tetst", "reyrteytr", "tryertye"],
+    "lastName": ["test1", "John2", "tetst3", "reyrteytr4", "tryertye5"]
+  };
+  var options = {
+    'method': 'post',
+    'headers': {
+      'accept': '*/*',
+      'Content-Type': 'application/json',
+      'Authorization': authToken
+    },
+    'payload': JSON.stringify(clientData),
+    'muteHttpExceptions': true
+  };
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseCode = response.getResponseCode();
+    var responseBody = response.getContentText();
+
+    if (responseCode === 201) {
+      Logger.log('Клиенты успешно созданы!');
+    } else {
+      Logger.log('Ошибка при создании клиентов: ' + responseBody);
+    }
+  } catch (error) {
+    Logger.log('Ошибка при отправке запроса: ' + error.message);
+  }
+}
+
+
+function fetchAllClients(authToken) {
+  var url = 'http://94.103.91.4:5000/clients';
+  var limit = 1000; // Максимальное количество записей на запрос
+  var offset = 0; // Начальное смещение - ID последнего клиента из таблицы
+  var requestCount = 0; // Счетчик запросов
+  Logger.log('Начальная позиция offset: ' + offset);
+  while (true) {
+    var requestUrl = `${url}?limit=${limit}&offset=${offset}`;
+    var options = {
+      'method': 'get',
+      'headers': {
+        'accept': '*/*',
+        'Authorization': authToken
+      },
+      'muteHttpExceptions': true
+    };
+
+    try {
+      var response = UrlFetchApp.fetch(requestUrl, options);
+      requestCount++; // Увеличиваем счетчик запросов
+      var responseCode = response.getResponseCode();
+      var responseBody = response.getContentText();
+
+      if (responseCode !== 200) {
+        Logger.log('Ошибка при получении клиентов: ' + responseBody);
+        break;
+      }
+
+      var clients = JSON.parse(responseBody);
+      if (clients.length === 0) {
+        Logger.log('Нет больше клиентов для обработки.');
+        break; // Если список клиентов пуст, завершаем цикл
+      }
+      Logger.log(`Получено ${clients.length} клиентов, начиная с offset ${offset}`);
+      // Добавляем данные в Google Таблицу
+      showClientsInSheet(clients);
+      // Обновляем offset на основе последнего ID
+      offset = clients[clients.length - 1].id + 1;
+
+    } catch (error) {
+      Logger.log('Ошибка при отправке запроса: ' + error.message);
+      break;
+    }
+  }
+}
+
+
+
+function showClientsInSheet(allClients) {
+  if (!allClients || allClients.length === 0) {
+    Logger.log('Нет данных для отображения');
+    return;
+  }
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+
+  // Если таблица пуста (первая строка), добавляем заголовки
+  if (sheet.getLastRow() === 0) {
+    var headers = ['ID', 'First Name', 'Last Name'];
+    sheet.appendRow(headers);
+  }
+
+  // Преобразуем данные клиентов в массив строк
+  var data = allClients.map(client => [
+    client.id || '',
+    client.firstName || '',
+    client.lastName || '',
+  ]);
+
+  // Добавляем данные в таблицу
+  var lastRow = sheet.getLastRow();
+  var range = sheet.getRange(lastRow + 1, 1, data.length, data[0].length);
+  range.setValues(data);
+
+  Logger.log('Все клиенты добавлены в Google Таблицу');
+}
+
+
+// Главная функция
+function main() {
+  var username = 'someusername';
+  var authToken = loginWithToken(username); // Получение токена
+  if (!authToken) {
+    Logger.log('Ошибка: Токен не получен');
+    return;
+  }
+   fetchAllClients(authToken);
+
+
+}
+
+
+
